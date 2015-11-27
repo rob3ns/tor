@@ -284,10 +284,11 @@ test_crypto_sha(void *arg)
 {
   crypto_digest_t *d1 = NULL, *d2 = NULL;
   int i;
-  char key[160];
-  char digest[32];
-  char data[50];
-  char d_out1[DIGEST_LEN], d_out2[DIGEST256_LEN];
+#define RFC_4231_MAX_KEY_SIZE 131
+  char key[RFC_4231_MAX_KEY_SIZE];
+  char digest[DIGEST256_LEN];
+  char data[DIGEST512_LEN];
+  char d_out1[DIGEST512_LEN], d_out2[DIGEST512_LEN];
   char *mem_op_hex_tmp=NULL;
 
   /* Test SHA-1 with a test vector from the specification. */
@@ -300,6 +301,13 @@ test_crypto_sha(void *arg)
   i = crypto_digest256(data, "abc", 3, DIGEST_SHA256);
   test_memeq_hex(data, "BA7816BF8F01CFEA414140DE5DAE2223B00361A3"
                        "96177A9CB410FF61F20015AD");
+  tt_int_op(i, OP_EQ, 0);
+
+  /* Test SHA-512 with a test vector from the specification. */
+  i = crypto_digest512(data, "abc", 3, DIGEST_SHA512);
+  test_memeq_hex(data, "ddaf35a193617abacc417349ae20413112e6fa4e89a97"
+                       "ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3"
+                       "feebbd454d4423643ce80e2a9ac94fa54ca49f");
   tt_int_op(i, OP_EQ, 0);
 
   /* Test HMAC-SHA256 with test cases from wikipedia and RFC 4231 */
@@ -378,15 +386,15 @@ test_crypto_sha(void *arg)
   d2 = crypto_digest_dup(d1);
   tt_assert(d2);
   crypto_digest_add_bytes(d2, "ghijkl", 6);
-  crypto_digest_get_digest(d2, d_out1, sizeof(d_out1));
+  crypto_digest_get_digest(d2, d_out1, DIGEST_LEN);
   crypto_digest(d_out2, "abcdefghijkl", 12);
   tt_mem_op(d_out1,OP_EQ, d_out2, DIGEST_LEN);
   crypto_digest_assign(d2, d1);
   crypto_digest_add_bytes(d2, "mno", 3);
-  crypto_digest_get_digest(d2, d_out1, sizeof(d_out1));
+  crypto_digest_get_digest(d2, d_out1, DIGEST_LEN);
   crypto_digest(d_out2, "abcdefmno", 9);
   tt_mem_op(d_out1,OP_EQ, d_out2, DIGEST_LEN);
-  crypto_digest_get_digest(d1, d_out1, sizeof(d_out1));
+  crypto_digest_get_digest(d1, d_out1, DIGEST_LEN);
   crypto_digest(d_out2, "abcdef", 6);
   tt_mem_op(d_out1,OP_EQ, d_out2, DIGEST_LEN);
   crypto_digest_free(d1);
@@ -399,17 +407,38 @@ test_crypto_sha(void *arg)
   d2 = crypto_digest_dup(d1);
   tt_assert(d2);
   crypto_digest_add_bytes(d2, "ghijkl", 6);
-  crypto_digest_get_digest(d2, d_out1, sizeof(d_out1));
+  crypto_digest_get_digest(d2, d_out1, DIGEST256_LEN);
   crypto_digest256(d_out2, "abcdefghijkl", 12, DIGEST_SHA256);
-  tt_mem_op(d_out1,OP_EQ, d_out2, DIGEST_LEN);
+  tt_mem_op(d_out1,OP_EQ, d_out2, DIGEST256_LEN);
   crypto_digest_assign(d2, d1);
   crypto_digest_add_bytes(d2, "mno", 3);
-  crypto_digest_get_digest(d2, d_out1, sizeof(d_out1));
+  crypto_digest_get_digest(d2, d_out1, DIGEST256_LEN);
   crypto_digest256(d_out2, "abcdefmno", 9, DIGEST_SHA256);
-  tt_mem_op(d_out1,OP_EQ, d_out2, DIGEST_LEN);
-  crypto_digest_get_digest(d1, d_out1, sizeof(d_out1));
+  tt_mem_op(d_out1,OP_EQ, d_out2, DIGEST256_LEN);
+  crypto_digest_get_digest(d1, d_out1, DIGEST256_LEN);
   crypto_digest256(d_out2, "abcdef", 6, DIGEST_SHA256);
-  tt_mem_op(d_out1,OP_EQ, d_out2, DIGEST_LEN);
+  tt_mem_op(d_out1,OP_EQ, d_out2, DIGEST256_LEN);
+  crypto_digest_free(d1);
+  crypto_digest_free(d2);
+
+  /* Incremental digest code with sha512 */
+  d1 = crypto_digest512_new(DIGEST_SHA512);
+  tt_assert(d1);
+  crypto_digest_add_bytes(d1, "abcdef", 6);
+  d2 = crypto_digest_dup(d1);
+  tt_assert(d2);
+  crypto_digest_add_bytes(d2, "ghijkl", 6);
+  crypto_digest_get_digest(d2, d_out1, DIGEST512_LEN);
+  crypto_digest512(d_out2, "abcdefghijkl", 12, DIGEST_SHA512);
+  tt_mem_op(d_out1,OP_EQ, d_out2, DIGEST512_LEN);
+  crypto_digest_assign(d2, d1);
+  crypto_digest_add_bytes(d2, "mno", 3);
+  crypto_digest_get_digest(d2, d_out1, DIGEST512_LEN);
+  crypto_digest512(d_out2, "abcdefmno", 9, DIGEST_SHA512);
+  tt_mem_op(d_out1,OP_EQ, d_out2, DIGEST512_LEN);
+  crypto_digest_get_digest(d1, d_out1, DIGEST512_LEN);
+  crypto_digest512(d_out2, "abcdef", 6, DIGEST_SHA512);
+  tt_mem_op(d_out1,OP_EQ, d_out2, DIGEST512_LEN);
 
  done:
   if (d1)
@@ -1803,6 +1832,110 @@ test_crypto_siphash(void *arg)
   ;
 }
 
+/* We want the likelihood that the random buffer exhibits any regular pattern
+ * to be far less than the memory bit error rate in the int return value.
+ * Using 2048 bits provides a failure rate of 1/(3 * 10^616), and we call
+ * 3 functions, leading to an overall error rate of 1/10^616.
+ * This is comparable with the 1/10^603 failure rate of test_crypto_rng_range.
+ */
+#define FAILURE_MODE_BUFFER_SIZE (2048/8)
+
+/** Check crypto_rand for a failure mode where it does nothing to the buffer,
+ * or it sets the buffer to all zeroes. Return 0 when the check passes,
+ * or -1 when it fails. */
+static int
+crypto_rand_check_failure_mode_zero(void)
+{
+  char buf[FAILURE_MODE_BUFFER_SIZE];
+
+  memset(buf, 0, FAILURE_MODE_BUFFER_SIZE);
+  crypto_rand(buf, FAILURE_MODE_BUFFER_SIZE);
+
+  for (size_t i = 0; i < FAILURE_MODE_BUFFER_SIZE; i++) {
+    if (buf[i] != 0) {
+      return 0;
+    }
+  }
+
+  return -1;
+}
+
+/** Check crypto_rand for a failure mode where every int64_t in the buffer is
+ * the same. Return 0 when the check passes, or -1 when it fails. */
+static int
+crypto_rand_check_failure_mode_identical(void)
+{
+  /* just in case the buffer size isn't a multiple of sizeof(int64_t) */
+#define FAILURE_MODE_BUFFER_SIZE_I64 \
+  (FAILURE_MODE_BUFFER_SIZE/SIZEOF_INT64_T)
+#define FAILURE_MODE_BUFFER_SIZE_I64_BYTES \
+  (FAILURE_MODE_BUFFER_SIZE_I64*SIZEOF_INT64_T)
+
+#if FAILURE_MODE_BUFFER_SIZE_I64 < 2
+#error FAILURE_MODE_BUFFER_SIZE needs to be at least 2*SIZEOF_INT64_T
+#endif
+
+  int64_t buf[FAILURE_MODE_BUFFER_SIZE_I64];
+
+  memset(buf, 0, FAILURE_MODE_BUFFER_SIZE_I64_BYTES);
+  crypto_rand((char *)buf, FAILURE_MODE_BUFFER_SIZE_I64_BYTES);
+
+  for (size_t i = 1; i < FAILURE_MODE_BUFFER_SIZE_I64; i++) {
+    if (buf[i] != buf[i-1]) {
+      return 0;
+    }
+  }
+
+  return -1;
+}
+
+/** Check crypto_rand for a failure mode where it increments the "random"
+ * value by 1 for every byte in the buffer. (This is OpenSSL's PREDICT mode.)
+ * Return 0 when the check passes, or -1 when it fails. */
+static int
+crypto_rand_check_failure_mode_predict(void)
+{
+  unsigned char buf[FAILURE_MODE_BUFFER_SIZE];
+
+  memset(buf, 0, FAILURE_MODE_BUFFER_SIZE);
+  crypto_rand((char *)buf, FAILURE_MODE_BUFFER_SIZE);
+
+  for (size_t i = 1; i < FAILURE_MODE_BUFFER_SIZE; i++) {
+    /* check if the last byte was incremented by 1, including integer
+     * wrapping */
+    if (buf[i] - buf[i-1] != 1 && buf[i-1] - buf[i] != 255) {
+      return 0;
+    }
+  }
+
+  return -1;
+}
+
+#undef FAILURE_MODE_BUFFER_SIZE
+
+static void
+test_crypto_failure_modes(void *arg)
+{
+  int rv = 0;
+  (void)arg;
+
+  rv = crypto_early_init();
+  tt_assert(rv == 0);
+
+  /* Check random works */
+  rv = crypto_rand_check_failure_mode_zero();
+  tt_assert(rv == 0);
+
+  rv = crypto_rand_check_failure_mode_identical();
+  tt_assert(rv == 0);
+
+  rv = crypto_rand_check_failure_mode_predict();
+  tt_assert(rv == 0);
+
+ done:
+  ;
+}
+
 #define CRYPTO_LEGACY(name)                                            \
   { #name, test_crypto_ ## name , 0, NULL, NULL }
 
@@ -1841,6 +1974,7 @@ struct testcase_t crypto_tests[] = {
   { "ed25519_fuzz_donna", test_crypto_ed25519_fuzz_donna, TT_FORK, NULL,
     NULL },
   { "siphash", test_crypto_siphash, 0, NULL, NULL },
+  { "failure_modes", test_crypto_failure_modes, TT_FORK, NULL, NULL },
   END_OF_TESTCASES
 };
 

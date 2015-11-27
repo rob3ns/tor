@@ -267,8 +267,7 @@ crypto_init_siphash_key(void)
   if (have_seeded_siphash)
     return 0;
 
-  if (crypto_rand((char*) &key, sizeof(key)) < 0)
-    return -1;
+  crypto_rand((char*) &key, sizeof(key));
   siphash_set_global_key(&key);
   have_seeded_siphash = 1;
   return 0;
@@ -321,7 +320,8 @@ int
 crypto_global_init(int useAccel, const char *accelName, const char *accelDir)
 {
   if (!crypto_global_initialized_) {
-    crypto_early_init();
+    if (crypto_early_init() < 0)
+      return -1;
 
     crypto_global_initialized_ = 1;
 
@@ -427,7 +427,8 @@ crypto_pk_get_rsa_(crypto_pk_t *env)
 }
 
 /** used by tortls.c: get an equivalent EVP_PKEY* for a crypto_pk_t.  Iff
- * private is set, include the private-key portion of the key. */
+ * private is set, include the private-key portion of the key. Return a valid
+ * pointer on success, and NULL on failure. */
 MOCK_IMPL(EVP_PKEY *,
           crypto_pk_get_evp_pkey_,(crypto_pk_t *env, int private))
 {
@@ -651,7 +652,8 @@ crypto_pk_read_private_key_from_filename(crypto_pk_t *env,
   return 0;
 }
 
-/** Helper function to implement crypto_pk_write_*_key_to_string. */
+/** Helper function to implement crypto_pk_write_*_key_to_string. Return 0 on
+ * success, -1 on failure. */
 static int
 crypto_pk_write_key_to_string_impl(crypto_pk_t *env, char **dest,
                                    size_t *len, int is_public)
@@ -892,7 +894,8 @@ crypto_pk_dup_key(crypto_pk_t *env)
   return env;
 }
 
-/** Make a real honest-to-goodness copy of <b>env</b>, and return it. */
+/** Make a real honest-to-goodness copy of <b>env</b>, and return it.
+ * Returns NULL on failure. */
 crypto_pk_t *
 crypto_pk_copy_full(crypto_pk_t *env)
 {
@@ -1184,7 +1187,8 @@ crypto_pk_public_hybrid_encrypt(crypto_pk_t *env,
   return -1;
 }
 
-/** Invert crypto_pk_public_hybrid_encrypt. */
+/** Invert crypto_pk_public_hybrid_encrypt. Returns the number of bytes
+ * written on success, -1 on failure. */
 int
 crypto_pk_private_hybrid_decrypt(crypto_pk_t *env,
                                  char *to,
@@ -1327,7 +1331,7 @@ crypto_pk_get_all_digests(crypto_pk_t *pk, digests_t *digests_out)
 }
 
 /** Copy <b>in</b> to the <b>outlen</b>-byte buffer <b>out</b>, adding spaces
- * every four spaces. */
+ * every four characters. */
 void
 crypto_add_spaces_to_fp(char *out, size_t outlen, const char *in)
 {
@@ -1479,7 +1483,7 @@ crypto_cipher_get_key(crypto_cipher_t *env)
 
 /** Encrypt <b>fromlen</b> bytes from <b>from</b> using the cipher
  * <b>env</b>; on success, store the result to <b>to</b> and return 0.
- * On failure, return -1.
+ * Does not check for failure.
  */
 int
 crypto_cipher_encrypt(crypto_cipher_t *env, char *to,
@@ -1498,7 +1502,7 @@ crypto_cipher_encrypt(crypto_cipher_t *env, char *to,
 
 /** Decrypt <b>fromlen</b> bytes from <b>from</b> using the cipher
  * <b>env</b>; on success, store the result to <b>to</b> and return 0.
- * On failure, return -1.
+ * Does not check for failure.
  */
 int
 crypto_cipher_decrypt(crypto_cipher_t *env, char *to,
@@ -1514,7 +1518,7 @@ crypto_cipher_decrypt(crypto_cipher_t *env, char *to,
 }
 
 /** Encrypt <b>len</b> bytes on <b>from</b> using the cipher in <b>env</b>;
- * on success, return 0.  On failure, return -1.
+ * on success, return 0. Does not check for failure.
  */
 int
 crypto_cipher_crypt_inplace(crypto_cipher_t *env, char *buf, size_t len)
@@ -1586,7 +1590,7 @@ crypto_cipher_decrypt_with_iv(const char *key,
 
 /** Compute the SHA1 digest of the <b>len</b> bytes on data stored in
  * <b>m</b>.  Write the DIGEST_LEN byte result into <b>digest</b>.
- * Return 0 on success, -1 on failure.
+ * Return 0 on success, 1 on failure.
  */
 int
 crypto_digest(char *digest, const char *m, size_t len)
@@ -1598,7 +1602,7 @@ crypto_digest(char *digest, const char *m, size_t len)
 
 /** Compute a 256-bit digest of <b>len</b> bytes in data stored in <b>m</b>,
  * using the algorithm <b>algorithm</b>.  Write the DIGEST_LEN256-byte result
- * into <b>digest</b>.  Return 0 on success, -1 on failure. */
+ * into <b>digest</b>.  Return 0 on success, 1 on failure. */
 int
 crypto_digest256(char *digest, const char *m, size_t len,
                  digest_algorithm_t algorithm)
@@ -1607,6 +1611,19 @@ crypto_digest256(char *digest, const char *m, size_t len,
   tor_assert(digest);
   tor_assert(algorithm == DIGEST_SHA256);
   return (SHA256((const unsigned char*)m,len,(unsigned char*)digest) == NULL);
+}
+
+/** Compute a 512-bit digest of <b>len</b> bytes in data stored in <b>m</b>,
+ * using the algorithm <b>algorithm</b>.  Write the DIGEST_LEN512-byte result
+ * into <b>digest</b>.  Return 0 on success, 1 on failure. */
+int
+crypto_digest512(char *digest, const char *m, size_t len,
+                 digest_algorithm_t algorithm)
+{
+  tor_assert(m);
+  tor_assert(digest);
+  tor_assert(algorithm == DIGEST_SHA512);
+  return (SHA512((const unsigned char*)m,len,(unsigned char*)digest) == NULL);
 }
 
 /** Set the digests_t in <b>ds_out</b> to contain every digest on the
@@ -1621,8 +1638,18 @@ crypto_digest_all(digests_t *ds_out, const char *m, size_t len)
   if (crypto_digest(ds_out->d[DIGEST_SHA1], m, len) < 0)
     return -1;
   for (i = DIGEST_SHA256; i < N_DIGEST_ALGORITHMS; ++i) {
-    if (crypto_digest256(ds_out->d[i], m, len, i) < 0)
-      return -1;
+      switch (i) {
+        case DIGEST_SHA256:
+          if (crypto_digest256(ds_out->d[i], m, len, i) < 0)
+            return -1;
+          break;
+        case DIGEST_SHA512:
+          if (crypto_digest512(ds_out->d[i], m, len, i) < 0)
+            return -1;
+          break;
+        default:
+          return -1;
+      }
   }
   return 0;
 }
@@ -1636,6 +1663,8 @@ crypto_digest_algorithm_get_name(digest_algorithm_t alg)
       return "sha1";
     case DIGEST_SHA256:
       return "sha256";
+    case DIGEST_SHA512:
+      return "sha512";
     default:
       tor_fragile_assert();
       return "??unknown_digest??";
@@ -1651,6 +1680,8 @@ crypto_digest_algorithm_parse_name(const char *name)
     return DIGEST_SHA1;
   else if (!strcmp(name, "sha256"))
     return DIGEST_SHA256;
+  else if (!strcmp(name, "sha512"))
+    return DIGEST_SHA512;
   else
     return -1;
 }
@@ -1660,6 +1691,7 @@ struct crypto_digest_t {
   union {
     SHA_CTX sha1; /**< state for SHA1 */
     SHA256_CTX sha2; /**< state for SHA256 */
+    SHA512_CTX sha512; /**< state for SHA512 */
   } d; /**< State for the digest we're using.  Only one member of the
         * union is usable, depending on the value of <b>algorithm</b>. */
   digest_algorithm_bitfield_t algorithm : 8; /**< Which algorithm is in use? */
@@ -1686,6 +1718,19 @@ crypto_digest256_new(digest_algorithm_t algorithm)
   tor_assert(algorithm == DIGEST_SHA256);
   r = tor_malloc(sizeof(crypto_digest_t));
   SHA256_Init(&r->d.sha2);
+  r->algorithm = algorithm;
+  return r;
+}
+
+/** Allocate and return a new digest object to compute 512-bit digests
+ * using <b>algorithm</b>. */
+crypto_digest_t *
+crypto_digest512_new(digest_algorithm_t algorithm)
+{
+  crypto_digest_t *r;
+  tor_assert(algorithm == DIGEST_SHA512);
+  r = tor_malloc(sizeof(crypto_digest_t));
+  SHA512_Init(&r->d.sha512);
   r->algorithm = algorithm;
   return r;
 }
@@ -1721,6 +1766,9 @@ crypto_digest_add_bytes(crypto_digest_t *digest, const char *data,
     case DIGEST_SHA256:
       SHA256_Update(&digest->d.sha2, (void*)data, len);
       break;
+    case DIGEST_SHA512:
+      SHA512_Update(&digest->d.sha512, (void*)data, len);
+      break;
     default:
       tor_fragile_assert();
       break;
@@ -1729,13 +1777,13 @@ crypto_digest_add_bytes(crypto_digest_t *digest, const char *data,
 
 /** Compute the hash of the data that has been passed to the digest
  * object; write the first out_len bytes of the result to <b>out</b>.
- * <b>out_len</b> must be \<= DIGEST256_LEN.
+ * <b>out_len</b> must be \<= DIGEST512_LEN.
  */
 void
 crypto_digest_get_digest(crypto_digest_t *digest,
                          char *out, size_t out_len)
 {
-  unsigned char r[DIGEST256_LEN];
+  unsigned char r[DIGEST512_LEN];
   crypto_digest_t tmpenv;
   tor_assert(digest);
   tor_assert(out);
@@ -1749,6 +1797,10 @@ crypto_digest_get_digest(crypto_digest_t *digest,
     case DIGEST_SHA256:
       tor_assert(out_len <= DIGEST256_LEN);
       SHA256_Final(r, &tmpenv.d.sha2);
+      break;
+    case DIGEST_SHA512:
+      tor_assert(out_len <= DIGEST512_LEN);
+      SHA512_Final(r, &tmpenv.d.sha512);
       break;
     default:
       log_warn(LD_BUG, "Called with unknown algorithm %d", digest->algorithm);
@@ -1791,7 +1843,7 @@ crypto_digest_assign(crypto_digest_t *into,
  * at <b>digest_out</b> to the hash of the concatenation of those strings,
  * plus the optional string <b>append</b>, computed with the algorithm
  * <b>alg</b>.
- * <b>out_len</b> must be \<= DIGEST256_LEN. */
+ * <b>out_len</b> must be \<= DIGEST512_LEN. */
 void
 crypto_digest_smartlist(char *digest_out, size_t len_out,
                         const smartlist_t *lst,
@@ -1806,7 +1858,7 @@ crypto_digest_smartlist(char *digest_out, size_t len_out,
  * optional string <b>prepend</b>, those strings,
  * and the optional string <b>append</b>, computed with the algorithm
  * <b>alg</b>.
- * <b>out_len</b> must be \<= DIGEST256_LEN. */
+ * <b>len_out</b> must be \<= DIGEST512_LEN. */
 void
 crypto_digest_smartlist_prefix(char *digest_out, size_t len_out,
                         const char *prepend,
@@ -1814,11 +1866,25 @@ crypto_digest_smartlist_prefix(char *digest_out, size_t len_out,
                         const char *append,
                         digest_algorithm_t alg)
 {
-  crypto_digest_t *d;
-  if (alg == DIGEST_SHA1)
-    d = crypto_digest_new();
-  else
-    d = crypto_digest256_new(alg);
+  crypto_digest_t *d = NULL;
+  switch (alg) {
+    case DIGEST_SHA1:
+      d = crypto_digest_new();
+      break;
+    case DIGEST_SHA256:
+      d = crypto_digest256_new(alg);
+      break;
+    case DIGEST_SHA512:
+      d = crypto_digest512_new(alg);
+      break;
+    default:
+      log_warn(LD_BUG, "Called with unknown algorithm %d", alg);
+      /* If fragile_assert is not enabled, wipe output and return
+       * without running any calculations */
+      memwipe(digest_out, 0xff, len_out);
+      tor_fragile_assert();
+      goto free;
+  }
   if (prepend)
     crypto_digest_add_bytes(d, prepend, strlen(prepend));
   SMARTLIST_FOREACH(lst, const char *, cp,
@@ -1826,23 +1892,28 @@ crypto_digest_smartlist_prefix(char *digest_out, size_t len_out,
   if (append)
     crypto_digest_add_bytes(d, append, strlen(append));
   crypto_digest_get_digest(d, digest_out, len_out);
+
+ free:
   crypto_digest_free(d);
 }
 
 /** Compute the HMAC-SHA-256 of the <b>msg_len</b> bytes in <b>msg</b>, using
  * the <b>key</b> of length <b>key_len</b>.  Store the DIGEST256_LEN-byte
- * result in <b>hmac_out</b>.
+ * result in <b>hmac_out</b>. Asserts on failure.
  */
 void
 crypto_hmac_sha256(char *hmac_out,
                    const char *key, size_t key_len,
                    const char *msg, size_t msg_len)
 {
+  unsigned char *rv = NULL;
   /* If we've got OpenSSL >=0.9.8 we can use its hmac implementation. */
   tor_assert(key_len < INT_MAX);
   tor_assert(msg_len < INT_MAX);
-  HMAC(EVP_sha256(), key, (int)key_len, (unsigned char*)msg, (int)msg_len,
-       (unsigned char*)hmac_out, NULL);
+  tor_assert(hmac_out);
+  rv = HMAC(EVP_sha256(), key, (int)key_len, (unsigned char*)msg, (int)msg_len,
+            (unsigned char*)hmac_out, NULL);
+  tor_assert(rv);
 }
 
 /* DH */
@@ -1936,7 +2007,8 @@ init_dh_param(void)
  */
 #define DH_PRIVATE_KEY_BITS 320
 
-/** Allocate and return a new DH object for a key exchange.
+/** Allocate and return a new DH object for a key exchange. Returns NULL on
+ * failure.
  */
 crypto_dh_t *
 crypto_dh_new(int dh_type)
@@ -2188,7 +2260,7 @@ crypto_expand_key_material_TAP(const uint8_t *key_in, size_t key_in_len,
  * secret key material; the <b>salt_in_len</b> bytes at <b>salt_in</b> and the
  * <b>info_in_len</b> bytes in <b>info_in_len</b> are the algorithm's "salt"
  * and "info" parameters respectively.  On success, write <b>key_out_len</b>
- * bytes to <b>key_out</b> and return 0.  On failure, return -1.
+ * bytes to <b>key_out</b> and return 0.  Assert on failure.
  */
 int
 crypto_expand_key_material_rfc5869_sha256(
@@ -2272,7 +2344,7 @@ crypto_seed_weak_rng(tor_weak_rng_t *rng)
 }
 
 /** Try to get <b>out_len</b> bytes of the strongest entropy we can generate,
- * storing it into <b>out</b>.
+ * storing it into <b>out</b>. Return -1 on success, 0 on failure.
  */
 int
 crypto_strongest_rand(uint8_t *out, size_t out_len)
@@ -2327,8 +2399,7 @@ crypto_strongest_rand(uint8_t *out, size_t out_len)
 }
 
 /** Seed OpenSSL's random number generator with bytes from the operating
- * system.  <b>startup</b> should be true iff we have just started Tor and
- * have not yet allocated a bunch of fds.  Return 0 on success, -1 on failure.
+ * system.  Return 0 on success, -1 on failure.
  */
 int
 crypto_seed_rng(void)
@@ -2350,34 +2421,41 @@ crypto_seed_rng(void)
 
   memwipe(buf, 0, sizeof(buf));
 
-  if (rand_poll_ok || load_entropy_ok)
+  if ((rand_poll_ok || load_entropy_ok) && RAND_status() == 1)
     return 0;
   else
     return -1;
 }
 
-/** Write <b>n</b> bytes of strong random data to <b>to</b>. Return 0 on
- * success, -1 on failure, with support for mocking for unit tests.
+/** Write <b>n</b> bytes of strong random data to <b>to</b>. Supports mocking
+ * for unit tests.
+ *
+ * This function is not allowed to fail; if it would fail to generate strong
+ * entropy, it must terminate the process instead.
  */
-MOCK_IMPL(int,
+MOCK_IMPL(void,
 crypto_rand, (char *to, size_t n))
 {
-  return crypto_rand_unmocked(to, n);
+  crypto_rand_unmocked(to, n);
 }
 
-/** Write <b>n</b> bytes of strong random data to <b>to</b>. Return 0 on
- * success, -1 on failure.  Most callers will want crypto_rand instead.
+/** Write <b>n</b> bytes of strong random data to <b>to</b>.  Most callers
+ * will want crypto_rand instead.
+ *
+ * This function is not allowed to fail; if it would fail to generate strong
+ * entropy, it must terminate the process instead.
  */
-int
+void
 crypto_rand_unmocked(char *to, size_t n)
 {
   int r;
+  if (n == 0)
+    return;
+
   tor_assert(n < INT_MAX);
   tor_assert(to);
   r = RAND_bytes((unsigned char*)to, (int)n);
-  if (r == 0)
-    crypto_log_errors(LOG_WARN, "generating random data");
-  return (r == 1) ? 0 : -1;
+  tor_assert(r >= 0);
 }
 
 /** Return a pseudorandom integer, chosen uniformly from the values
@@ -2403,8 +2481,8 @@ crypto_rand_int(unsigned int max)
   }
 }
 
-/** Return a pseudorandom integer, chosen uniformly from the values <i>i</i>
- * such that <b>min</b> &lt;= <i>i</i> &lt <b>max</b>.
+/** Return a pseudorandom integer, chosen uniformly from the values i such
+ * that min <= i < max.
  *
  * <b>min</b> MUST be in range [0, <b>max</b>).
  * <b>max</b> MUST be in range (min, INT_MAX].
@@ -2481,7 +2559,7 @@ crypto_rand_double(void)
 /** Generate and return a new random hostname starting with <b>prefix</b>,
  * ending with <b>suffix</b>, and containing no fewer than
  * <b>min_rand_len</b> and no more than <b>max_rand_len</b> random base32
- * characters between.
+ * characters. Does not check for failure.
  *
  * Clip <b>max_rand_len</b> to MAX_DNS_LABEL_SIZE.
  **/
@@ -2663,7 +2741,7 @@ tor_set_openssl_thread_id(CRYPTO_THREADID *threadid)
 
 /** @{ */
 /** Helper: Construct mutexes, and set callbacks to help OpenSSL handle being
- * multithreaded. */
+ * multithreaded. Returns 0. */
 static int
 setup_openssl_threading(void)
 {
@@ -2681,7 +2759,8 @@ setup_openssl_threading(void)
   return 0;
 }
 
-/** Uninitialize the crypto library. Return 0 on success, -1 on failure.
+/** Uninitialize the crypto library. Return 0 on success. Does not detect
+ * failure.
  */
 int
 crypto_global_cleanup(void)

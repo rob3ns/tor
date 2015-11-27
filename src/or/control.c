@@ -2562,6 +2562,12 @@ static const getinfo_item_t getinfo_items[] = {
        "v3 Networkstatus consensus as retrieved from a DirPort."),
   ITEM("exit-policy/default", policies,
        "The default value appended to the configured exit policy."),
+  ITEM("exit-policy/reject-private/default", policies,
+       "The default rules appended to the configured exit policy by"
+       " ExitPolicyRejectPrivate."),
+  ITEM("exit-policy/reject-private/relay", policies,
+       "The relay-specific rules appended to the configured exit policy by"
+       " ExitPolicyRejectPrivate."),
   ITEM("exit-policy/full", policies, "The entire exit policy of onion router"),
   ITEM("exit-policy/ipv4", policies, "IPv4 parts of exit policy"),
   ITEM("exit-policy/ipv6", policies, "IPv6 parts of exit policy"),
@@ -3436,8 +3442,7 @@ handle_control_authchallenge(control_connection_t *conn, uint32_t len,
     tor_free(client_nonce);
     return -1;
   }
-  const int fail = crypto_rand(server_nonce, SAFECOOKIE_SERVER_NONCE_LEN);
-  tor_assert(!fail);
+  crypto_rand(server_nonce, SAFECOOKIE_SERVER_NONCE_LEN);
 
   /* Now compute and send the server-to-controller response, and the
    * server's nonce. */

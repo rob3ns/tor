@@ -562,7 +562,6 @@ static char *get_bindaddr_from_transport_listen_line(const char *line,
 static int parse_dir_authority_line(const char *line,
                                  dirinfo_type_t required_type,
                                  int validate_only);
-static void port_cfg_free(port_cfg_t *port);
 static int parse_ports(or_options_t *options, int validate_only,
                               char **msg_out, int *n_ports_out,
                               int *world_writable_control_socket);
@@ -5737,7 +5736,7 @@ parse_dir_fallback_line(const char *line,
 }
 
 /** Allocate and return a new port_cfg_t with reasonable defaults. */
-static port_cfg_t *
+STATIC port_cfg_t *
 port_cfg_new(size_t namelen)
 {
   tor_assert(namelen <= SIZE_T_CEILING - sizeof(port_cfg_t) - 1);
@@ -5749,7 +5748,7 @@ port_cfg_new(size_t namelen)
 }
 
 /** Free all storage held in <b>port</b> */
-static void
+STATIC void
 port_cfg_free(port_cfg_t *port)
 {
   tor_free(port);
@@ -5803,9 +5802,9 @@ warn_nonlocal_ext_orports(const smartlist_t *ports, const char *portname)
   } SMARTLIST_FOREACH_END(port);
 }
 
-/** Given a list of port_cfg_t in <b>ports</b>, warn any controller port there
- * is listening on any non-loopback address.  If <b>forbid_nonlocal</b> is
- * true, then emit a stronger warning and remove the port from the list.
+/** Given a list of port_cfg_t in <b>ports</b>, warn if any controller port
+ * there is listening on any non-loopback address.  If <b>forbid_nonlocal</b>
+ * is true, then emit a stronger warning and remove the port from the list.
  */
 static void
 warn_nonlocal_controller_ports(smartlist_t *ports, unsigned forbid_nonlocal)
@@ -6673,8 +6672,8 @@ check_server_ports(const smartlist_t *ports,
 
 /** Return a list of port_cfg_t for client ports parsed from the
  * options. */
-const smartlist_t *
-get_configured_ports(void)
+MOCK_IMPL(const smartlist_t *,
+get_configured_ports,(void))
 {
   if (!configured_ports)
     configured_ports = smartlist_new();
@@ -7336,8 +7335,7 @@ init_cookie_authentication(const char *fname, const char *header,
 
   /* Generate the cookie */
   *cookie_out = tor_malloc(cookie_len);
-  if (crypto_rand((char *)*cookie_out, cookie_len) < 0)
-    goto done;
+  crypto_rand((char *)*cookie_out, cookie_len);
 
   /* Create the string that should be written on the file. */
   memcpy(cookie_file_str, header, strlen(header));

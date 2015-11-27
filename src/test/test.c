@@ -28,6 +28,7 @@
 #define ROUTER_PRIVATE
 #define CIRCUITSTATS_PRIVATE
 #define CIRCUITLIST_PRIVATE
+#define MAIN_PRIVATE
 #define STATEFILE_PRIVATE
 
 /*
@@ -50,6 +51,7 @@ double fabs(double x);
 #include "rendcache.h"
 #include "test.h"
 #include "torgzip.h"
+#include "main.h"
 #include "memarea.h"
 #include "onion.h"
 #include "onion_ntor.h"
@@ -317,6 +319,13 @@ test_circuit_timeout(void *arg)
   int i, runs;
   double close_ms;
   (void)arg;
+  tor_libevent_cfg cfg;
+
+  memset(&cfg, 0, sizeof(cfg));
+
+  tor_libevent_initialize(&cfg);
+  initialize_periodic_events();
+
   circuit_build_times_init(&initial);
   circuit_build_times_init(&estimate);
   circuit_build_times_init(&final);
@@ -456,6 +465,7 @@ test_circuit_timeout(void *arg)
   circuit_build_times_free_timeouts(&estimate);
   circuit_build_times_free_timeouts(&final);
   or_state_free(state);
+  teardown_periodic_events();
 }
 
 /** Test encoding and parsing of rendezvous service descriptors. */
@@ -1109,7 +1119,7 @@ static struct testcase_t test_array[] = {
   { "bad_onion_handshake", test_bad_onion_handshake, 0, NULL, NULL },
   ENT(onion_queues),
   { "ntor_handshake", test_ntor_handshake, 0, NULL, NULL },
-  ENT(circuit_timeout),
+  FORK(circuit_timeout),
   FORK(rend_fns),
   ENT(geoip),
   FORK(geoip_with_pt),
